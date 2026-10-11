@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Maré Reversa</title>
+    <base href="/" />
+    <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+    <div id="app"><p class="loading">🌊 Enchendo o mar... (carregando C#)</p></div>
+
+    <script>
+        // Única ponte com o JavaScript: captura o teclado e entrega para o C#.
+        window.mareKeys = {
+            init(ref) {
+                const block = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+                window.addEventListener('keydown', e => {
+                    if (block.includes(e.key)) e.preventDefault();
+                    if (e.repeat && (e.key === ' ' || e.key === 'Enter')) return;
+                    ref.invokeMethodAsync('OnKey', e.key);
+                });
+            }
+        };
+    </script>
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+</html>

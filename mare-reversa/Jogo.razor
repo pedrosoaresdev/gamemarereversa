@@ -1,0 +1,332 @@
+@using System.Diagnostics
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="app">
+    <h1>🌊 Maré Reversa</h1>
+
+    <div class="hud">
+        <span title="Vidas">
+            @for (var h = 0; h < E.MaxHearts; h++)
+            {
+                <span>@(h < E.Hearts ? "❤️" : "🖤")</span>
+            }
+        </span>
+        <span title="Moedas">🪙 @E.Coins</span>
+        <span title="Fase">🏝️ Fase @E.Level/@GameEngine.LastLevel</span>
+        <span title="Tempo na fase">⏱️ @((int)E.LevelTime)s</span>
+        <span title="Pontos">⭐ @E.Score</span>
+        <span title="Recorde">🏆 @_best</span>
+    </div>
+
+    <div class="board">
+        <svg viewBox="0 0 480 320" role="img" aria-label="Ilha do jogo Maré Reversa">
+            @* ---------- Tiles ---------- *@
+            @for (var j = 0; j < GameEngine.H; j++)
+            {
+                for (var i = 0; i < GameEngine.W; i++)
+                {
+                    var x = i * T;
+                    var y = j * T;
+                    var tile = E.Grid[i, j];
+
+                    if (tile == Tile.Water)
+                    {
+                        <rect x="@x" y="@y" width="@T" height="@T" fill="@(((i + j) % 2 == 0) ? "#3591e6" : "#3b9cf0")" />
+                        <rect class="wave" x="@(x + 8)" y="@(y + 12)" width="10" height="3" fill="#8ccbff" style="animation-delay:-@(((i * 3 + j * 5) % 10))s" />
+                        <rect class="wave" x="@(x + 22)" y="@(y + 28)" width="10" height="3" fill="#8ccbff" style="animation-delay:-@(((i * 7 + j * 2) % 10))s" />
+                    }
+                    else
+                    {
+                        <rect x="@x" y="@y" width="@T" height="@T" fill="#7ed34a" />
+                        <rect x="@x" y="@(y + T - 4)" width="@T" height="4" fill="#4f9a2c" />
+                        <rect x="@(x + 4 + (i * 5 + j * 3) % 16)" y="@(y + 6 + (i * 7 + j * 11) % 18)" width="4" height="4" fill="#6bc03c" />
+                        <rect x="@(x + 20 + (i * 3 + j * 5) % 12)" y="@(y + 18 + (i * 13 + j) % 12)" width="4" height="4" fill="#8fe05a" />
+
+                        if (tile == Tile.Rock)
+                        {
+                            <polygon points="@($"{x + 6},{y + 32} {x + 10},{y + 14} {x + 22},{y + 6} {x + 34},{y + 14} {x + 34},{y + 32}")" fill="#9aa0a6" stroke="#6b7076" stroke-width="2" />
+                            <rect x="@(x + 14)" y="@(y + 12)" width="8" height="4" fill="#c9ced3" />
+                        }
+
+                        if (E.Warn[i, j] > 0)
+                        {
+                            <rect class="warn" x="@x" y="@y" width="@T" height="@T" />
+                        }
+                    }
+                }
+            }
+
+            @* ---------- Respingos ---------- *@
+            @foreach (var s in E.Splashes)
+            {
+                <circle cx="@(s.X * T + 20)" cy="@(s.Y * T + 20)" r="@((int)((0.6 - s.Left) * 50))" fill="none" stroke="white" stroke-width="3" />
+            }
+
+            @* ---------- Linha de pesca ---------- *@
+            @{
+                var cx = E.PX * T + 20;
+                var cy = E.PY * T + 20;
+                var (fdx, fdy) = E.Dir;
+            }
+
+            @if (E.Cast is { } c)
+            {
+                var bx = c.X * T + 20;
+                var by = c.Y * T + 20;
+                var rx = cx + Math.Sign(c.X - E.PX) * 20;
+                var ry = cy + Math.Sign(c.Y - E.PY) * 20 - 10;
+
+                <line x1="@cx" y1="@(cy - 4)" x2="@rx" y2="@ry" stroke="#5a3a1a" stroke-width="3" />
+                <g class="@(c.Bite ? "jig" : "")">
+                    <line x1="@rx" y1="@ry" x2="@bx" y2="@by" stroke="white" stroke-width="1" />
+                    <rect x="@(bx - 4)" y="@(by - 4)" width="8" height="8" fill="#e03030" />
+                    <rect x="@(bx - 4)" y="@(by - 4)" width="8" height="3" fill="white" />
+                    @if (c.Bite)
+                    {
+                        var col = FishInfo.Color(c.Fish);
+                        <ellipse cx="@bx" cy="@(by - 14)" rx="12" ry="7" fill="@col" stroke="#12324a" stroke-width="2" />
+                        <polygon points="@($"{bx + 10},{by - 14} {bx + 20},{by - 21} {bx + 20},{by - 7}")" fill="@col" stroke="#12324a" stroke-width="2" />
+                        <circle cx="@(bx - 6)" cy="@(by - 16)" r="2" fill="#12324a" />
+                        if (c.Fish == FishKind.Baiacu)
+                        {
+                            <polygon points="@($"{bx - 4},{by - 22} {bx},{by - 29} {bx + 4},{by - 22}")" fill="#12324a" />
+                            <polygon points="@($"{bx + 2},{by - 22} {bx + 6},{by - 29} {bx + 10},{by - 22}")" fill="#12324a" />
+                        }
+                    }
+                </g>
+                @if (c.Bite)
+                {
+                    if (c.Fish == FishKind.Baiacu)
+                    {
+                        <polygon points="@($"{cx - 11},{cy - 20} {cx},{cy - 42} {cx + 11},{cy - 20}")" fill="#ff5a4a" stroke="#12324a" stroke-width="2" />
+                        <rect x="@(cx - 2)" y="@(cy - 36)" width="4" height="9" fill="white" />
+                        <rect x="@(cx - 2)" y="@(cy - 25)" width="4" height="3" fill="white" />
+                    }
+                    else
+                    {
+                        <rect x="@(cx - 3)" y="@(cy - 42)" width="6" height="15" fill="#ffe14a" stroke="#12324a" stroke-width="1" />
+                        <rect x="@(cx - 3)" y="@(cy - 24)" width="6" height="6" fill="#ffe14a" stroke="#12324a" stroke-width="1" />
+                    }
+                }
+            }
+            else
+            {
+                <line x1="@(cx + fdx * 6)" y1="@(cy + 2)" x2="@(cx + fdx * 22)" y2="@(cy - 8 + fdy * 8)" stroke="#5a3a1a" stroke-width="3" />
+            }
+
+            @* ---------- Pescador ---------- *@
+            <ellipse cx="@cx" cy="@(cy + 14)" rx="10" ry="4" fill="rgba(0,0,0,.2)" />
+            <rect x="@(cx - 7)" y="@(cy - 16)" width="14" height="12" fill="#f2b27a" />
+            <rect x="@(cx - 4 + fdx * 2)" y="@(cy - 11 + fdy)" width="2" height="3" fill="#222" />
+            <rect x="@(cx + 2 + fdx * 2)" y="@(cy - 11 + fdy)" width="2" height="3" fill="#222" />
+            <rect x="@(cx - 8)" y="@(cy - 4)" width="16" height="14" fill="#e8742a" />
+            <rect x="@(cx - 7)" y="@(cy + 10)" width="6" height="6" fill="#2a4a9a" />
+            <rect x="@(cx + 1)" y="@(cy + 10)" width="6" height="6" fill="#2a4a9a" />
+
+            @* ---------- Maré congelada ---------- *@
+            @if (E.FreezeLeft > 0)
+            {
+                <rect width="480" height="320" fill="rgba(150,220,255,.25)" />
+            }
+        </svg>
+
+        @if (E.FreezeLeft > 0)
+        {
+            <div class="freeze">❄️ Maré congelada: @((int)Math.Ceiling(E.FreezeLeft))s</div>
+        }
+
+        <div class="toasts">
+            @foreach (var t in E.Toasts)
+            {
+                <div class="toast">@t.Text</div>
+            }
+        </div>
+
+        @* ---------- Telas por cima do tabuleiro ---------- *@
+        @if (E.State == GameState.Menu)
+        {
+            <div class="overlay">
+                <h2>Bem-vindo, pescador!</h2>
+                <p>A maré sobe e quer engolir sua ilha. Pesque <b>terra</b> do fundo do mar, cumpra as missões de cada fase e sobreviva.</p>
+                <p class="small">⌨️ Setas/WASD andam · Espaço lança a vara e puxa quando surgir o aviso · B abre a loja</p>
+                <button class="big" @onclick="E.Act">Jogar</button>
+            </div>
+        }
+        else if (E.State == GameState.LevelDone)
+        {
+            <div class="overlay">
+                <h2>🎉 Fase @E.Level concluída!</h2>
+                <p>Todas as missões cumpridas. Bônus de +10 moedas! Você tem 🪙 @E.Coins para gastar.</p>
+                <div class="row">
+                    <button @onclick="E.OpenShop">🛒 Loja</button>
+                    <button class="big" @onclick="E.Act">Próxima fase ▶</button>
+                </div>
+            </div>
+        }
+        else if (E.State == GameState.Shop)
+        {
+            <div class="overlay">
+                <h2>🛒 Loja do Pescador</h2>
+                <p>Você tem 🪙 @E.Coins</p>
+                @foreach (var u in E.Upgrades)
+                {
+                    <div class="item">
+                        <div>
+                            <b>@u.Name</b> <small>(@u.Level/@u.MaxLevel)</small><br />
+                            <small>@u.Description</small>
+                        </div>
+                        <button disabled="@(u.Maxed || E.Coins < u.Cost)" @onclick="() => Buy(u.Id)">@(u.Maxed ? "MAX" : $"🪙 {u.Cost}")</button>
+                    </div>
+                }
+                <button class="big" @onclick="E.CloseShop">Voltar ao jogo</button>
+            </div>
+        }
+        else if (E.State == GameState.Won)
+        {
+            <div class="overlay">
+                <h2>🏆 VOCÊ DOMOU A MARÉ!</h2>
+                <p>As 5 fases foram concluídas.<br />Pontos: <b>@E.Score</b> · Melhor combo: <b>@E.BestCombo</b> · Peixes: <b>@E.TotalCaught</b></p>
+                <button class="big" @onclick="E.Act">Jogar de novo</button>
+            </div>
+        }
+        else if (E.State == GameState.Lost)
+        {
+            <div class="overlay">
+                <h2>💀 O mar venceu...</h2>
+                <p>Chegou até a fase @E.Level.<br />Pontos: <b>@E.Score</b> · Melhor combo: <b>@E.BestCombo</b></p>
+                <button class="big" @onclick="E.Act">Tentar de novo</button>
+            </div>
+        }
+    </div>
+
+    <section class="panel">
+        <h3>🎯 Missões da fase @E.Level</h3>
+        @foreach (var m in E.Missions)
+        {
+            <div class="mission @(m.Done ? "done" : "")">
+                <div>@(m.Done ? "✅" : "🎯") @m.Title <small>(@m.Progress/@m.Target) · 🪙 @m.Reward</small></div>
+                <div class="bar"><div style="width:@(m.Percent)%"></div></div>
+            </div>
+        }
+    </section>
+
+    <section class="panel">
+        <h3>🐟 Peixes do mar</h3>
+        @foreach (var k in Enum.GetValues<FishKind>())
+        {
+            <div class="fish">
+                <span class="dot" style="background:@FishInfo.Color(k)"></span>
+                <b>@FishInfo.Name(k)</b>: @FishInfo.Effect(k)
+            </div>
+        }
+        <p class="small">Combo: <b>@E.Combo</b> pescas seguidas. A cada 3 você ganha moedas extras. Se puxar cedo demais ou deixar o peixe fugir, o combo zera.</p>
+    </section>
+
+    <div class="pad">
+        <span></span>
+        <button @onclick="() => E.Move(Facing.Up)" aria-label="Cima">▲</button>
+        <span></span>
+        <button @onclick="() => E.Move(Facing.Left)" aria-label="Esquerda">◀</button>
+        <button @onclick="() => E.Move(Facing.Down)" aria-label="Baixo">▼</button>
+        <button @onclick="() => E.Move(Facing.Right)" aria-label="Direita">▶</button>
+    </div>
+    <div class="row">
+        <button class="big" @onclick="E.Act">🎣 Pescar</button>
+        <button @onclick="E.ToggleShop">🛒 Loja</button>
+    </div>
+</div>
+
+@code {
+    private const int T = 40;
+
+    private readonly GameEngine E = new();
+    private readonly CancellationTokenSource _cts = new();
+    private DotNetObjectReference<Jogo>? _ref;
+    private int _best;
+    private bool _saved;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _ref = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("mareKeys.init", _ref);
+
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "mare_best");
+            int.TryParse(saved, out _best);
+        }
+        catch { /* armazenamento indisponível: segue sem recorde salvo */ }
+
+        StateHasChanged();
+        _ = LoopAsync();
+    }
+
+    private async Task LoopAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
+        var clock = Stopwatch.StartNew();
+        var last = 0.0;
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                var now = clock.Elapsed.TotalSeconds;
+                var dt = Math.Min(0.1, now - last);
+                last = now;
+
+                E.Update(dt);
+                await SaveBestIfNeeded();
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task SaveBestIfNeeded()
+    {
+        if (E.State is GameState.Won or GameState.Lost)
+        {
+            if (_saved) return;
+            _saved = true;
+            if (E.Score > _best)
+            {
+                _best = E.Score;
+                try { await JS.InvokeVoidAsync("localStorage.setItem", "mare_best", _best.ToString()); }
+                catch { }
+            }
+        }
+        else
+        {
+            _saved = false;
+        }
+    }
+
+    [JSInvokable]
+    public void OnKey(string key)
+    {
+        switch (key.ToLowerInvariant())
+        {
+            case "arrowup": case "w": E.Move(Facing.Up); break;
+            case "arrowdown": case "s": E.Move(Facing.Down); break;
+            case "arrowleft": case "a": E.Move(Facing.Left); break;
+            case "arrowright": case "d": E.Move(Facing.Right); break;
+            case " ": case "enter": E.Act(); break;
+            case "b": case "p": E.ToggleShop(); break;
+            case "escape": E.CloseShop(); break;
+        }
+        StateHasChanged();
+    }
+
+    private void Buy(string id) => E.Buy(id);
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _ref?.Dispose();
+        await ValueTask.CompletedTask;
+    }
+}
